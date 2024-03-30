@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "hdrtvdm"
+version = "0.1.0"
+description = ""
+authors = ["user <user@example.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+torch = "^2.2.2"
+torchvision = "^0.17.2"
+pyyaml = "^6.0.1"
+opencv-python-headless = "^4.9.0.80"
+imageio = "^2.34.0"
+numpy = "^1.26.4"
+einops = "^0.7.0"
+openexr = "^3.2.4"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
