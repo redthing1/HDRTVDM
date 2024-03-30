@@ -39,11 +39,12 @@ def compose(transforms):
         for transform in transforms:
             obj = transform(obj)
         return obj
+
     return composition
 
 
 def str2bool(x):
-    if x is None or x.lower() in ['no', 'false', 'f', '0']:
+    if x is None or x.lower() in ["no", "false", "f", "0"]:
         return False
     else:
         return True
@@ -52,22 +53,28 @@ def str2bool(x):
 def create_name(inp, tag, ext, out, extra_tag):
     root, name, _ = split_path(inp)
     if extra_tag is not None:
-        tag = '{0}_{1}'.format(tag, extra_tag)
+        tag = "{0}_{1}".format(tag, extra_tag)
     if out is not None:
         root = out
-    return path.join(root, '{0}_{1}.{2}'.format(name, tag, ext))
+    return path.join(root, "{0}_{1}.{2}".format(name, tag, ext))
 
 
 ### Image utilities ###
 def np2torch(img, from_bgr=True):
     img = img[:, :, [2, 1, 0]] if from_bgr else img
-    return torch.from_numpy(np.ascontiguousarray(np.transpose(img, (2, 0, 1)))).float().half()
+    return (
+        torch.from_numpy(np.ascontiguousarray(np.transpose(img, (2, 0, 1)))).float()
+        # .half()
+    )
 
 
 def torch2np(t_img, to_bgr=True):
     img_np = t_img.numpy()  # t_img.detach().numpy()
-    out = np.transpose(img_np[[2, 1, 0], :, :], (1, 2, 0)).astype(np.float32) if to_bgr \
+    out = (
+        np.transpose(img_np[[2, 1, 0], :, :], (1, 2, 0)).astype(np.float32)
+        if to_bgr
         else np.transpose(img_np, (1, 2, 0)).astype(np.float32)
+    )
     return out
 
 
@@ -81,35 +88,64 @@ class Exposure(object):
         self.gamma = gamma
 
     def process(self, img):
-        return np.clip(img*(2**self.stops), 0, 1)**self.gamma
+        return np.clip(img * (2**self.stops), 0, 1) ** self.gamma
 
 
 ### Parameters ###
 parser = argparse.ArgumentParser()
 arg = parser.add_argument
-arg('ldr', nargs='+', type=process_path, help='Ldr image(s)')
-arg('-out', type=lambda x: process_path(x, True), default=None, help='Output location.')
-arg('-resize', type=str2bool, default=False, help='Use resized input.')
-arg('-width', type=int, default=1920, help='Image width resizing.')
-arg('-height', type=int, default=1080, help='Image height resizing.')
-arg('-tag', default=None, help='Tag name for outputs.')
-arg('-use_gpu', type=str2bool, default=torch.cuda.is_available(), help='Use GPU for prediction.')
-arg('-in_bitdepth', type=int, default=8, help='Bit depth of input SDR frames.')
-arg('-out_format', choices=['tif', 'exr', 'png'], default='tif', help='Encapsulation of output HDR frames.')
+arg("ldr", nargs="+", type=process_path, help="Ldr image(s)")
+arg(
+    "--out", type=lambda x: process_path(x, True), default=None, help="Output location."
+)
+arg("--resize", type=str2bool, default=False, help="Use resized input.")
+arg("--width", type=int, default=1920, help="Image width resizing.")
+arg("--height", type=int, default=1080, help="Image height resizing.")
+arg("--tag", default=None, help="Tag name for outputs.")
+arg(
+    "--use_gpu",
+    type=str2bool,
+    default=torch.cuda.is_available(),
+    help="Use GPU for prediction.",
+)
+arg("--in_bitdepth", type=int, default=8, help="Bit depth of input SDR frames.")
+arg(
+    "--out_format",
+    choices=["tif", "exr", "png"],
+    default="exr",
+    help="Encapsulation of output HDR frames.",
+)
+arg(
+    "--model",
+    type=str,
+    choices=["params", "params_3DM", "params_DaVinci"],
+    default="params",
+    help="Model path.",
+)
 opt = parser.parse_args()
 
 
 ### Load network ###
-net = TriSegNet().half()
-net.load_state_dict(torch.load('params.pth', map_location=lambda s, l: s))
+# net = TriSegNet().half()
+print("Loading network...")
+net = TriSegNet()
+# net.load_state_dict(torch.load("params.pth", map_location=lambda s, l: s))
+net.load_state_dict(torch.load(f"{opt.model}.pth", map_location=lambda s, l: s))
+print("Network loaded!")
 
 ### Defined Pre-process ##
-preprocess = compose([lambda x: x.astype('float32'), resize])
+preprocess = compose([lambda x: x.astype("float32"), resize])
 
 ### Loading single frames ###
 for ldr_file in opt.ldr:
-    loaded = cv2.imread(ldr_file, flags=cv2.IMREAD_UNCHANGED) / (2.0 ** opt.in_bitdepth - 1.0)
-    print('Could not load {0}'.format(ldr_file)) if loaded is None else print('Image {0} loaded!'.format(ldr_file))
+    loaded = cv2.imread(ldr_file, flags=cv2.IMREAD_UNCHANGED) / (
+        2.0**opt.in_bitdepth - 1.0
+    )
+    (
+        print("Could not load {0}".format(ldr_file))
+        if loaded is None
+        else print("Image {0} loaded!".format(ldr_file))
+    )
     start = time.time()
     ldr_input = preprocess(loaded)
     ldr_input = np2torch(ldr_input, from_bgr=True).unsqueeze(dim=0)
@@ -118,26 +154,35 @@ for ldr_file in opt.ldr:
         net.cuda()
         ldr_input = ldr_input.cuda()
 
+    print("Processing {0}...".format(ldr_file))
     with torch.no_grad():
-    	prediction = net(ldr_input).detach()[0].float().cpu()
-    	prediction = torch2np(prediction, to_bgr=False)
+        prediction = net(ldr_input).detach()[0].float().cpu()
+        prediction = torch2np(prediction, to_bgr=False)
+    print("Prediction done!")
 
-    if opt.out_format == 'tif':
-        out_name = create_name(ldr_file, 'HDR', 'tif', opt.out, opt.tag)
+    if opt.out_format == "tif":
+        out_name = create_name(ldr_file, "HDR", "tif", opt.out, opt.tag)
         prediction = np.round(prediction * 65535.0).astype(np.uint16)
         io.imwrite(out_name, prediction)
         # cv2.imwrite(out_name, prediction, (int(cv2.IMWRITE_TIFF_COMPRESSION), 5))
         # flag 5 means LZW compression, see: opencv\sources\3rdparty\libtiff\tiff.h
-    elif opt.out_format == 'exr':
-        raise AttributeError('Unsupported output format, you can install additional package openEXR.')
-    elif opt.out_format == 'png':
-        out_name = create_name(ldr_file, 'HDR', 'png', opt.out, opt.tag)
+    elif opt.out_format == "exr":
+        # raise AttributeError(
+        #     "Unsupported output format, you can install additional package openEXR."
+        # )
+        os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
+        out_name = create_name(ldr_file, "HDR", "exr", opt.out, opt.tag)
+        io.imwrite(out_name, prediction)
+    elif opt.out_format == "png":
+        out_name = create_name(ldr_file, "HDR", "png", opt.out, opt.tag)
         prediction = np.round(prediction * 65535.0).astype(np.uint16)
         io.imwrite(out_name, prediction)
         # cv2.imwrite(out_name, prediction)
     else:
-        raise AttributeError('Unsupported output format!')
+        raise AttributeError("Unsupported output format!")
 
     end = time.time()
-    print('Finish processing {0}. \n takes {1} seconds. \n -------------------------------------'
-          ''.format(ldr_file, '%.04f' % (end-start)))
+    print(
+        "Finish processing {0}. \n takes {1} seconds. \n -------------------------------------"
+        "".format(ldr_file, "%.04f" % (end - start))
+    )
