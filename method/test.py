@@ -102,12 +102,13 @@ arg("--resize", type=str2bool, default=False, help="Use resized input.")
 arg("--width", type=int, default=1920, help="Image width resizing.")
 arg("--height", type=int, default=1080, help="Image height resizing.")
 arg("--tag", default=None, help="Tag name for outputs.")
-arg(
-    "--use_gpu",
-    type=str2bool,
-    default=torch.cuda.is_available(),
-    help="Use GPU for prediction.",
-)
+# arg(
+#     "--use_gpu",
+#     type=str2bool,
+#     default=torch.cuda.is_available(),
+#     help="Use GPU for prediction.",
+# )
+arg("--device", type=str, default="cpu", help="Device for prediction.")
 arg("--in_bitdepth", type=int, default=8, help="Bit depth of input SDR frames.")
 arg(
     "--out_format",
@@ -150,9 +151,14 @@ for ldr_file in opt.ldr:
     ldr_input = preprocess(loaded)
     ldr_input = np2torch(ldr_input, from_bgr=True).unsqueeze(dim=0)
 
-    if opt.use_gpu:
-        net.cuda()
-        ldr_input = ldr_input.cuda()
+    # if opt.use_gpu:
+    #     print("Using GPU for prediction.")
+    #     net.cuda()
+    #     ldr_input = ldr_input.cuda()
+    if opt.device != "cpu":
+        print(f"Using {opt.device} for prediction.")
+        net.to(opt.device)
+        ldr_input = ldr_input.to(opt.device)
 
     print("Processing {0}...".format(ldr_file))
     with torch.no_grad():
